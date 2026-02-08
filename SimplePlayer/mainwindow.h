@@ -6,6 +6,8 @@
 #include <QVideoWidget>
 #include <QListWidget>
 
+#include "clickableslider.h"
+
 QT_BEGIN_NAMESPACE
 namespace Ui {
 class MainWindow;
@@ -84,6 +86,7 @@ private:
     bool m_isFullScreen;
     QByteArray m_savedGeometry;
     qreal m_playbackRate;
+    ClickableSlider *newSlider;
 
     void setupPlayer();
     void setupConnections();

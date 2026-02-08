@@ -12,10 +12,12 @@ DEFINES += QT_DEPRECATED_WARNINGS
 CONFIG += c++17
 
 SOURCES += \
+        clickableslider.cpp \
         main.cpp \
         mainwindow.cpp
 
 HEADERS += \
+    clickableslider.h \
     mainwindow.h
 
 FORMS += \

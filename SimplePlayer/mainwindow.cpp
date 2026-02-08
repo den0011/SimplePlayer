@@ -32,6 +32,35 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    QSlider *oldSlider = ui->positionSlider;
+
+    newSlider = new ClickableSlider(oldSlider->parentWidget());
+
+//    connect(ui->positionSlider, &ClickableSlider::sliderClicked,
+//            this, [this](int value) {
+//                // преобразование позиции
+//                player->setPosition(value);
+//            });
+
+    // копируем параметры
+    newSlider->setOrientation(oldSlider->orientation());
+    newSlider->setRange(oldSlider->minimum(), oldSlider->maximum());
+    newSlider->setValue(oldSlider->value());
+    newSlider->setEnabled(oldSlider->isEnabled());
+    newSlider->setObjectName(oldSlider->objectName());
+
+    // заменяем в layout
+    if (auto layout = oldSlider->parentWidget()->layout()) {
+        layout->replaceWidget(oldSlider, newSlider);
+    }
+
+    // удаляем старый
+    oldSlider->deleteLater();
+
+    // переназначаем указатель ui
+    ui->positionSlider = newSlider;
+
+
     // Настраиваем видеоплеер
     setupPlayer();
 
