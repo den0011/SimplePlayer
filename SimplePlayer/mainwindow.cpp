@@ -60,6 +60,15 @@ MainWindow::MainWindow(QWidget *parent)
     // переназначаем указатель ui
     ui->positionSlider = newSlider;
 
+    ui->videoContainer->layout()->setContentsMargins(0, 0, 0, 0);
+    ui->videoContainer->layout()->setSpacing(0);
+    ui->videoContainer->setSizePolicy(
+        QSizePolicy::Expanding,
+        QSizePolicy::Expanding
+    );
+    ui->videoContainer->setStyleSheet("background: black;");
+    ui->videoContainer->setAutoFillBackground(false);
+
 
     // Настраиваем видеоплеер
     setupPlayer();
