@@ -13,10 +13,10 @@ CONFIG += c++17
 
 SOURCES += \
         main.cpp \
-        VideoPlayer.cpp
+        mainwindow.cpp
 
 HEADERS += \
-    VideoPlayer.h
+    mainwindow.h
 
 FORMS += \
-    VideoPlayer.ui
+    mainwindow.ui
