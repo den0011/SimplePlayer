@@ -4,7 +4,7 @@
 #include <QMainWindow>
 #include <QMediaPlayer>
 #include <QVideoWidget>
-#include <QListWidgetItem>
+#include <QListWidget>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -25,7 +25,9 @@ protected:
     void dropEvent(QDropEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
     void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void mousePressEvent(QMouseEvent *event) override;
     void closeEvent(QCloseEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private slots:
     // Управление видео
@@ -45,6 +47,7 @@ private slots:
     void onSliderMoved(int position);
 
     // Управление плейлистом
+    void onAddToPlaylist();
     void onDeleteFromPlaylist();
     void onClearPlaylist();
     void onCopyFile();
@@ -52,6 +55,7 @@ private slots:
     void onSavePlaylist();
     void onLoadPlaylist();
     void onPlaylistItemDoubleClicked(QListWidgetItem *item);
+    void onPlaylistContextMenu(const QPoint &pos);
 
     // Навигация
     void onNextTrack();
@@ -67,6 +71,7 @@ private slots:
     void updateTimeDisplay();
     void onMediaStatusChanged(QMediaPlayer::MediaStatus status);
     void updateWindowTitle();
+    void updatePlaybackSpeed();
 
 private:
     Ui::MainWindow *ui;
@@ -78,9 +83,11 @@ private:
     bool m_singleFileLoop;
     bool m_isFullScreen;
     QByteArray m_savedGeometry;
+    qreal m_playbackRate;
 
     void setupPlayer();
     void setupConnections();
+    void setupContextMenu();
     void addFileToPlaylist(const QString &filePath);
     void playFile(const QString &filePath);
     int findCurrentPlaylistIndex() const;

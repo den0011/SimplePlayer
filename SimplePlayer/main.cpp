@@ -1,15 +1,15 @@
 #include "mainwindow.h"
 #include <QApplication>
 #include <QStyleFactory>
-#include <QSettings>
 
 int main(int argc, char *argv[])
 {
     QApplication a(argc, argv);
 
-    // Устанавливаем темную тему, похожую на MPC-HC
+    // Устанавливаем темную тему
     a.setStyle(QStyleFactory::create("Fusion"));
 
+    // Темная палитра
     QPalette darkPalette;
     darkPalette.setColor(QPalette::Window, QColor(53,53,53));
     darkPalette.setColor(QPalette::WindowText, Qt::white);
@@ -26,17 +26,11 @@ int main(int argc, char *argv[])
     darkPalette.setColor(QPalette::HighlightedText, Qt::black);
     a.setPalette(darkPalette);
 
-    // Настройки организации и приложения
+    // Настройки организации
     QCoreApplication::setOrganizationName("MyCompany");
     QCoreApplication::setApplicationName("VideoPlayer");
 
     MainWindow w;
-
-    // Загружаем сохраненные настройки
-    QSettings settings;
-    w.restoreGeometry(settings.value("geometry").toByteArray());
-    w.restoreState(settings.value("windowState").toByteArray());
-
     w.show();
 
     return a.exec();

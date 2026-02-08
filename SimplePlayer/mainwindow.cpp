@@ -16,6 +16,9 @@
 #include <QTextStream>
 #include <QTimer>
 #include <QStyle>
+#include <QMenu>
+#include <QAction>
+#include <QContextMenuEvent>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -25,6 +28,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_playlistLoop(false)
     , m_singleFileLoop(false)
     , m_isFullScreen(false)
+    , m_playbackRate(1.0)
 {
     ui->setupUi(this);
 
@@ -34,9 +38,13 @@ MainWindow::MainWindow(QWidget *parent)
     // Настраиваем соединения
     setupConnections();
 
+    // Настраиваем контекстное меню
+    setupContextMenu();
+
     // Разрешаем drag and drop
     setAcceptDrops(true);
     ui->listPlaylist->setAcceptDrops(true);
+    m_videoWidget->setAcceptDrops(true);
 
     // Сохраняем геометрию для восстановления из полноэкранного режима
     m_savedGeometry = saveGeometry();
@@ -65,6 +73,7 @@ void MainWindow::setupPlayer()
 
     // Настраиваем начальный объем
     m_player->setVolume(ui->sliderVolume->value());
+    onVolumeChanged(ui->sliderVolume->value());
 
     // Настраиваем слайдер позиции
     ui->positionSlider->setRange(0, 0);
@@ -73,6 +82,14 @@ void MainWindow::setupPlayer()
     ui->btnPlay->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
     ui->btnStop->setIcon(style()->standardIcon(QStyle::SP_MediaStop));
     ui->btnOpen->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
+    ui->btnPrev->setIcon(style()->standardIcon(QStyle::SP_MediaSkipBackward));
+    ui->btnNext->setIcon(style()->standardIcon(QStyle::SP_MediaSkipForward));
+    ui->btnAdd->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
+
+    // Настраиваем плейлист
+    ui->listPlaylist->setContextMenuPolicy(Qt::CustomContextMenu);
+    ui->listPlaylist->setDragDropMode(QAbstractItemView::DropOnly);
+    ui->listPlaylist->setSelectionMode(QAbstractItemView::ExtendedSelection);
 }
 
 void MainWindow::setupConnections()
@@ -83,6 +100,7 @@ void MainWindow::setupConnections()
     connect(ui->btnOpen, &QPushButton::clicked, this, &MainWindow::onOpenFile);
     connect(ui->btnNext, &QPushButton::clicked, this, &MainWindow::onNextTrack);
     connect(ui->btnPrev, &QPushButton::clicked, this, &MainWindow::onPrevTrack);
+    connect(ui->btnAdd, &QPushButton::clicked, this, &MainWindow::onAddToPlaylist);
 
     // Слайдеры
     connect(ui->positionSlider, &QSlider::sliderPressed, this, &MainWindow::onSliderPressed);
@@ -94,6 +112,8 @@ void MainWindow::setupConnections()
     // Плейлист
     connect(ui->listPlaylist, &QListWidget::itemDoubleClicked,
             this, &MainWindow::onPlaylistItemDoubleClicked);
+    connect(ui->listPlaylist, &QListWidget::customContextMenuRequested,
+            this, &MainWindow::onPlaylistContextMenu);
 
     // Кнопки плейлиста
     connect(ui->btnDelete, &QPushButton::clicked, this, &MainWindow::onDeleteFromPlaylist);
@@ -113,6 +133,9 @@ void MainWindow::setupConnections()
         ui->btnPlay->setIcon(style()->standardIcon(
             state == QMediaPlayer::PlayingState ?
             QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+
+        // Обновляем заголовок окна
+        updateWindowTitle();
     });
 
     // Меню
@@ -135,6 +158,11 @@ void MainWindow::setupConnections()
     timer->start(100);
 }
 
+void MainWindow::setupContextMenu()
+{
+    // Контекстное меню будет создаваться при каждом вызове
+}
+
 // ==== Drag & Drop ====
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
 {
@@ -149,18 +177,62 @@ void MainWindow::dropEvent(QDropEvent *event)
 
     if (mimeData->hasUrls()) {
         QList<QUrl> urlList = mimeData->urls();
+        bool filesAdded = false;
 
         for (const QUrl &url : urlList) {
             QString filePath = url.toLocalFile();
             if (!filePath.isEmpty()) {
                 addFileToPlaylist(filePath);
+                filesAdded = true;
             }
         }
 
-        if (!urlList.isEmpty() && m_player->state() == QMediaPlayer::StoppedState &&
+        if (filesAdded && m_player->state() == QMediaPlayer::StoppedState &&
             ui->listPlaylist->count() > 0) {
             playFile(ui->listPlaylist->item(0)->text());
         }
+
+        // Показываем плейлист, если он был скрыт
+        if (filesAdded && !ui->dockPlaylist->isVisible()) {
+            ui->dockPlaylist->setVisible(true);
+            ui->actionShowPlaylist->setChecked(true);
+        }
+    }
+}
+
+// ==== Контекстное меню ====
+void MainWindow::contextMenuEvent(QContextMenuEvent *event)
+{
+    // Контекстное меню на видео
+    if (m_videoWidget->geometry().contains(event->pos())) {
+        QMenu menu(this);
+
+        QAction *playAction = menu.addAction("▶ Воспроизвести");
+        QAction *pauseAction = menu.addAction("⏸ Пауза");
+        QAction *stopAction = menu.addAction("■ Стоп");
+        menu.addSeparator();
+        QAction *fullscreenAction = menu.addAction("⛶ Полноэкранный режим");
+        fullscreenAction->setCheckable(true);
+        fullscreenAction->setChecked(m_isFullScreen);
+
+        connect(playAction, &QAction::triggered, this, &MainWindow::onPlayPause);
+        connect(pauseAction, &QAction::triggered, this, &MainWindow::onPlayPause);
+        connect(stopAction, &QAction::triggered, this, &MainWindow::onStop);
+        connect(fullscreenAction, &QAction::triggered, [this]() {
+            onToggleFullScreen(!m_isFullScreen);
+        });
+
+        menu.exec(event->globalPos());
+    }
+}
+
+void MainWindow::mousePressEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::RightButton) {
+        // Обработка будет в contextMenuEvent
+        event->accept();
+    } else {
+        QMainWindow::mousePressEvent(event);
     }
 }
 
@@ -195,15 +267,28 @@ void MainWindow::onOpenFile()
     QStringList files = QFileDialog::getOpenFileNames(this,
         "Выберите видеофайлы",
         QStandardPaths::writableLocation(QStandardPaths::MoviesLocation),
-        "Видео файлы (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.mpg *.mpeg *.webm);;Все файлы (*.*)");
+        "Видео файлы (*.mp4 *.avi *.mkv *.mov *.wmv *.flv *.mpg *.mpeg *.webm *.m4v);;Все файлы (*.*)");
 
+    bool filesAdded = false;
     for (const QString &file : files) {
         addFileToPlaylist(file);
+        filesAdded = true;
     }
 
-    if (!files.isEmpty() && m_player->state() == QMediaPlayer::StoppedState) {
+    if (filesAdded && m_player->state() == QMediaPlayer::StoppedState) {
         playFile(files.first());
     }
+
+    // Показываем плейлист, если он был скрыт
+    if (filesAdded && !ui->dockPlaylist->isVisible()) {
+        ui->dockPlaylist->setVisible(true);
+        ui->actionShowPlaylist->setChecked(true);
+    }
+}
+
+void MainWindow::onAddToPlaylist()
+{
+    onOpenFile();
 }
 
 // ==== Управление звуком ====
@@ -228,6 +313,9 @@ void MainWindow::onVolumeChanged(int volume)
     } else if (ui->btnMute->isChecked()) {
         ui->btnMute->setChecked(false);
     }
+
+    // Обновляем подсказку
+    ui->sliderVolume->setToolTip(QString("Громкость: %1%").arg(volume));
 }
 
 void MainWindow::onMuteToggled(bool muted)
@@ -276,6 +364,11 @@ void MainWindow::onSliderMoved(int position)
 {
     // Устанавливаем позицию при перемещении слайдера
     m_player->setPosition(position);
+
+    // Показываем время под курсором
+    QTime time(0, 0, 0);
+    time = time.addMSecs(position);
+    QToolTip::showText(QCursor::pos(), time.toString("hh:mm:ss"), ui->positionSlider);
 }
 
 // ==== Управление плейлистом ====
@@ -294,6 +387,7 @@ void MainWindow::addFileToPlaylist(const QString &filePath)
             QFileInfo(filePath).fileName());
         item->setText(filePath);
         item->setToolTip(filePath);
+        item->setData(Qt::UserRole, filePath);
         ui->listPlaylist->addItem(item);
 
         updatePlaylistControls();
@@ -302,22 +396,30 @@ void MainWindow::addFileToPlaylist(const QString &filePath)
 
 void MainWindow::onDeleteFromPlaylist()
 {
-    QListWidgetItem *item = ui->listPlaylist->currentItem();
-    if (!item) return;
+    QList<QListWidgetItem*> selectedItems = ui->listPlaylist->selectedItems();
+    if (selectedItems.isEmpty()) return;
 
-    QString filePath = item->text();
+    QString message;
+    if (selectedItems.size() == 1) {
+        message = "Удалить файл из плейлиста?\n" +
+                 QFileInfo(selectedItems.first()->text()).fileName();
+    } else {
+        message = QString("Удалить %1 выбранных файлов из плейлиста?").arg(selectedItems.size());
+    }
 
-    if (QMessageBox::question(this, "Удаление файла",
-        "Удалить файл из плейлиста?\n" + QFileInfo(filePath).fileName(),
+    if (QMessageBox::question(this, "Удаление файлов", message,
         QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
 
-        // Если удаляемый файл воспроизводится, остановить
-        if (filePath == m_currentFile) {
-            m_player->stop();
-            m_currentFile.clear();
+        // Проверяем, не удаляем ли текущий воспроизводимый файл
+        for (QListWidgetItem* item : selectedItems) {
+            if (item->text() == m_currentFile) {
+                m_player->stop();
+                m_currentFile.clear();
+                break;
+            }
         }
 
-        delete item;
+        qDeleteAll(selectedItems);
         updatePlaylistControls();
     }
 }
@@ -349,7 +451,9 @@ void MainWindow::onCopyFile()
         "Копировать файл как",
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) +
         "/" + fileInfo.fileName(),
-        "Все файлы (*.*)");
+        QString("%1 (*.%2);;Все файлы (*.*)")
+            .arg(fileInfo.suffix().toUpper())
+            .arg(fileInfo.suffix()));
 
     if (!destPath.isEmpty()) {
         if (QFile::copy(sourcePath, destPath)) {
@@ -369,12 +473,15 @@ void MainWindow::onFileProperties()
     QFileInfo fileInfo(filePath);
 
     QString properties = QString(
-        "Имя файла: %1\n"
-        "Размер: %2\n"
-        "Создан: %3\n"
-        "Изменен: %4\n"
-        "Путь: %5")
+        "<b>Свойства файла:</b><br><br>"
+        "<b>Имя:</b> %1<br>"
+        "<b>Расширение:</b> %2<br>"
+        "<b>Размер:</b> %3<br>"
+        "<b>Дата создания:</b> %4<br>"
+        "<b>Дата изменения:</b> %5<br>"
+        "<b>Путь:</b> %6<br>")
         .arg(fileInfo.fileName())
+        .arg(fileInfo.suffix().toUpper())
         .arg(formatFileSize(fileInfo.size()))
         .arg(fileInfo.birthTime().toString("dd.MM.yyyy HH:mm:ss"))
         .arg(fileInfo.lastModified().toString("dd.MM.yyyy HH:mm:ss"))
@@ -410,16 +517,25 @@ void MainWindow::onSavePlaylist()
     QString fileName = QFileDialog::getSaveFileName(this,
         "Сохранить плейлист",
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) + "/playlist.m3u",
-        "Плейлист (*.m3u);;Все файлы (*.*)");
+        "Плейлист (*.m3u);;Текстовый файл (*.txt);;Все файлы (*.*)");
 
     if (!fileName.isEmpty()) {
         QFile file(fileName);
         if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
             QTextStream stream(&file);
+            stream << "#EXTM3U\n";
+
             for (int i = 0; i < ui->listPlaylist->count(); ++i) {
-                stream << ui->listPlaylist->item(i)->text() << "\n";
+                QString filePath = ui->listPlaylist->item(i)->text();
+                QFileInfo fileInfo(filePath);
+                stream << "#EXTINF:-1," << fileInfo.fileName() << "\n";
+                stream << filePath << "\n";
             }
+
             file.close();
+            QMessageBox::information(this, "Сохранение плейлиста", "Плейлист успешно сохранен");
+        } else {
+            QMessageBox::warning(this, "Сохранение плейлиста", "Ошибка при сохранении плейлиста");
         }
     }
 }
@@ -429,7 +545,7 @@ void MainWindow::onLoadPlaylist()
     QString fileName = QFileDialog::getOpenFileName(this,
         "Загрузить плейлист",
         QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
-        "Плейлист (*.m3u);;Все файлы (*.*)");
+        "Плейлист (*.m3u *.pls);;Текстовый файл (*.txt);;Все файлы (*.*)");
 
     if (!fileName.isEmpty()) {
         ui->listPlaylist->clear();
@@ -439,20 +555,85 @@ void MainWindow::onLoadPlaylist()
             QTextStream stream(&file);
             while (!stream.atEnd()) {
                 QString line = stream.readLine().trimmed();
-                if (!line.isEmpty() && QFile::exists(line)) {
+
+                // Пропускаем комментарии и заголовки M3U
+                if (line.startsWith("#") || line.isEmpty()) {
+                    continue;
+                }
+
+                // Проверяем, существует ли файл
+                if (QFile::exists(line)) {
                     addFileToPlaylist(line);
+                } else {
+                    // Пробуем относительный путь
+                    QFileInfo fileInfo(fileName);
+                    QString absolutePath = fileInfo.absoluteDir().absoluteFilePath(line);
+                    if (QFile::exists(absolutePath)) {
+                        addFileToPlaylist(absolutePath);
+                    }
                 }
             }
-            file.close();
-        }
 
-        updatePlaylistControls();
+            file.close();
+
+            // Показываем плейлист
+            if (!ui->dockPlaylist->isVisible() && ui->listPlaylist->count() > 0) {
+                ui->dockPlaylist->setVisible(true);
+                ui->actionShowPlaylist->setChecked(true);
+            }
+
+            updatePlaylistControls();
+        } else {
+            QMessageBox::warning(this, "Загрузка плейлиста", "Ошибка при загрузке плейлиста");
+        }
     }
 }
 
 void MainWindow::onPlaylistItemDoubleClicked(QListWidgetItem *item)
 {
     playFile(item->text());
+}
+
+void MainWindow::onPlaylistContextMenu(const QPoint &pos)
+{
+    QListWidgetItem *item = ui->listPlaylist->itemAt(pos);
+
+    QMenu menu(this);
+
+    if (item) {
+        QAction *playAction = menu.addAction("▶ Воспроизвести");
+        playAction->setIcon(style()->standardIcon(QStyle::SP_MediaPlay));
+
+        QAction *deleteAction = menu.addAction("🗑 Удалить");
+        deleteAction->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+
+        QAction *copyAction = menu.addAction("📋 Копировать файл...");
+        copyAction->setIcon(style()->standardIcon(QStyle::SP_FileIcon));
+
+        QAction *propertiesAction = menu.addAction("📄 Свойства файла...");
+        propertiesAction->setIcon(style()->standardIcon(QStyle::SP_FileDialogInfoView));
+
+        menu.addSeparator();
+
+        connect(playAction, &QAction::triggered, [this, item]() {
+            playFile(item->text());
+        });
+        connect(deleteAction, &QAction::triggered, this, &MainWindow::onDeleteFromPlaylist);
+        connect(copyAction, &QAction::triggered, this, &MainWindow::onCopyFile);
+        connect(propertiesAction, &QAction::triggered, this, &MainWindow::onFileProperties);
+    }
+
+    QAction *clearAction = menu.addAction("🗑 Очистить плейлист");
+    clearAction->setIcon(style()->standardIcon(QStyle::SP_DialogResetButton));
+    connect(clearAction, &QAction::triggered, this, &MainWindow::onClearPlaylist);
+
+    menu.addSeparator();
+
+    QAction *addAction = menu.addAction("＋ Добавить файлы...");
+    addAction->setIcon(style()->standardIcon(QStyle::SP_FileDialogContentsView));
+    connect(addAction, &QAction::triggered, this, &MainWindow::onAddToPlaylist);
+
+    menu.exec(ui->listPlaylist->viewport()->mapToGlobal(pos));
 }
 
 // ==== Навигация ====
@@ -583,7 +764,8 @@ void MainWindow::updateTimeDisplay()
 
 void MainWindow::onMediaStatusChanged(QMediaPlayer::MediaStatus status)
 {
-    if (status == QMediaPlayer::EndOfMedia) {
+    switch (status) {
+    case QMediaPlayer::EndOfMedia:
         if (m_singleFileLoop) {
             // Зацикливаем текущий файл
             m_player->setPosition(0);
@@ -595,8 +777,15 @@ void MainWindow::onMediaStatusChanged(QMediaPlayer::MediaStatus status)
             // Автоматически переходим к следующему треку
             playNextTrack();
         }
-    } else if (status == QMediaPlayer::InvalidMedia) {
-        QMessageBox::warning(this, "Ошибка", "Невозможно воспроизвести файл");
+        break;
+    case QMediaPlayer::LoadedMedia:
+        updateWindowTitle();
+        break;
+    case QMediaPlayer::InvalidMedia:
+        QMessageBox::warning(this, "Ошибка", "Невозможно воспроизвести файл: " + m_currentFile);
+        break;
+    default:
+        break;
     }
 }
 
@@ -624,6 +813,12 @@ void MainWindow::updateWindowTitle()
     }
 }
 
+void MainWindow::updatePlaybackSpeed()
+{
+    // Функция для будущей реализации изменения скорости воспроизведения
+    // m_player->setPlaybackRate(m_playbackRate);
+}
+
 void MainWindow::playFile(const QString &filePath)
 {
     if (QFile::exists(filePath)) {
@@ -635,6 +830,7 @@ void MainWindow::playFile(const QString &filePath)
         for (int i = 0; i < ui->listPlaylist->count(); ++i) {
             if (ui->listPlaylist->item(i)->text() == filePath) {
                 ui->listPlaylist->setCurrentRow(i);
+                ui->listPlaylist->scrollToItem(ui->listPlaylist->item(i));
                 break;
             }
         }
@@ -646,11 +842,12 @@ void MainWindow::playFile(const QString &filePath)
 void MainWindow::updatePlaylistControls()
 {
     bool hasItems = ui->listPlaylist->count() > 0;
-    bool hasSelection = ui->listPlaylist->currentItem() != nullptr;
+    bool hasSelection = !ui->listPlaylist->selectedItems().isEmpty();
+    bool singleSelection = ui->listPlaylist->selectedItems().size() == 1;
 
     ui->btnDelete->setEnabled(hasSelection);
-    ui->btnCopy->setEnabled(hasSelection);
-    ui->btnProperties->setEnabled(hasSelection);
+    ui->btnCopy->setEnabled(singleSelection);
+    ui->btnProperties->setEnabled(singleSelection);
     ui->btnClear->setEnabled(hasItems);
     ui->btnSave->setEnabled(hasItems);
     ui->btnLoad->setEnabled(true);
@@ -658,11 +855,20 @@ void MainWindow::updatePlaylistControls()
     ui->btnPrev->setEnabled(hasItems);
     ui->btnPlay->setEnabled(hasItems);
     ui->btnStop->setEnabled(hasItems);
+    ui->btnAdd->setEnabled(true);
 
     ui->actionPlay->setEnabled(hasItems);
     ui->actionStop->setEnabled(hasItems);
     ui->actionNext->setEnabled(hasItems);
     ui->actionPrev->setEnabled(hasItems);
+    ui->actionSavePlaylist->setEnabled(hasItems);
+
+    // Обновляем статусную строку
+    if (hasItems) {
+        ui->statusbar->showMessage(QString("Файлов в плейлисте: %1").arg(ui->listPlaylist->count()));
+    } else {
+        ui->statusbar->showMessage("Плейлист пуст");
+    }
 }
 
 // ==== Клавиатура ====
@@ -699,6 +905,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
         ui->sliderVolume->setValue(m_player->volume());
         event->accept();
         break;
+    case Qt::Key_F:
+        if (event->modifiers() & Qt::ControlModifier) {
+            onToggleFullScreen(!m_isFullScreen);
+            event->accept();
+        }
+        break;
     case Qt::Key_F11:
         onToggleFullScreen(!m_isFullScreen);
         event->accept();
@@ -706,6 +918,16 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
     case Qt::Key_Escape:
         if (m_isFullScreen) {
             onToggleFullScreen(false);
+            event->accept();
+        }
+        break;
+    case Qt::Key_Delete:
+        onDeleteFromPlaylist();
+        event->accept();
+        break;
+    case Qt::Key_A:
+        if (event->modifiers() & Qt::ControlModifier) {
+            ui->listPlaylist->selectAll();
             event->accept();
         }
         break;
@@ -735,6 +957,13 @@ void MainWindow::saveSettings()
     settings.setValue("playlistVisible", ui->dockPlaylist->isVisible());
     settings.setValue("playlistLoop", m_playlistLoop);
     settings.setValue("singleFileLoop", m_singleFileLoop);
+
+    // Сохраняем плейлист
+    QStringList playlist;
+    for (int i = 0; i < ui->listPlaylist->count(); ++i) {
+        playlist << ui->listPlaylist->item(i)->text();
+    }
+    settings.setValue("playlist", playlist);
 }
 
 void MainWindow::loadSettings()
@@ -757,6 +986,14 @@ void MainWindow::loadSettings()
 
     m_singleFileLoop = settings.value("singleFileLoop", false).toBool();
     ui->actionLoopSingle->setChecked(m_singleFileLoop);
+
+    // Загружаем плейлист
+    QStringList playlist = settings.value("playlist").toStringList();
+    for (const QString &filePath : playlist) {
+        if (QFile::exists(filePath)) {
+            addFileToPlaylist(filePath);
+        }
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event)
